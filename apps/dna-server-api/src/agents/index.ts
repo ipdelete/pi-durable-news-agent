@@ -138,7 +138,7 @@ export function createAgents(deps: Deps): Agents {
     model:
       deps.catalog.provider === "faux"
         ? deps.catalog.defaultModel
-        : deps.catalog.ref(deps.config.researchModel),
+        : deps.catalog.ref(deps.config.researchModel || deps.catalog.defaultModel.modelId),
     thinkingLevel: "low",
     extensions: [newsResearcher, observe],
   });

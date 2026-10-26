@@ -1,8 +1,11 @@
-// The model catalog: Haiku 5.5 (default) plus 29 more models, all through OpenRouter.
-// DNA_PROVIDER=faux swaps in a free deterministic model with the same 1M window.
+// OpenRouter's curated catalog, Pi-authenticated Copilot models, or the offline faux provider.
 import { createModels, type MutableModels } from "@earendil-works/pi-ai/models";
 import { openrouterProvider } from "@earendil-works/pi-ai/providers/openrouter";
+import { githubCopilotProvider } from "@earendil-works/pi-ai/providers/github-copilot";
+import type { Models } from "@earendil-works/pi-ai";
 import type { ModelRef } from "@earendil-works/pi-durable";
+
+export type ModelProvider = "openrouter" | "faux" | "github-copilot";
 
 export interface CatalogEntry {
   id: string;
@@ -76,8 +79,8 @@ export const CATALOG: readonly CatalogEntry[] = [
 ];
 
 export interface ModelCatalog {
-  readonly models: MutableModels;
-  readonly provider: "openrouter" | "faux";
+  readonly models: Models;
+  readonly provider: ModelProvider;
   readonly defaultModel: ModelRef;
   list(): ModelInfo[];
   /** A catalog id to a pi-durable model reference; throws for ids outside the catalog. */
@@ -145,6 +148,58 @@ export function createModelCatalog(options: {
     models,
     provider: "openrouter",
     defaultModel: ref(defaultId),
+    list,
+    ref,
+    info: (id) => list().find((m) => m.id === id),
+  };
+}
+
+/** Reuse Pi's auth.json, credential locking and token refresh; no app-owned login or token storage. */
+export async function createCopilotCatalog(defaultModel?: string): Promise<ModelCatalog> {
+  const { ModelRuntime } = await import("@earendil-works/pi-coding-agent");
+  const models = await ModelRuntime.create({ modelsPath: null, refreshOnCreate: false });
+  const provider = githubCopilotProvider();
+  // Subscription usage is not metered at catalog token prices.
+  const chatModels = provider.getModels().map((m) => ({
+    ...m,
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+  }));
+  models.registerNativeProvider({
+    ...provider,
+    getModels: () => chatModels,
+    getAllModels: () => chatModels,
+  });
+  if (!(await models.getAuth("github-copilot", { signal: AbortSignal.timeout(30_000) })))
+    throw new Error(
+      "Copilot is not signed in. Open Pi on the API host and use /login, then restart the API.",
+    );
+  const available = await models.getAvailable("github-copilot");
+  if (!available.length)
+    throw new Error(
+      "No supported Copilot models are enabled for this account. Check Pi /login and your account policies.",
+    );
+  const list = (): ModelInfo[] =>
+    available.map((m) => ({
+      id: m.id,
+      name: m.name,
+      tier: "subscription",
+      icon: CATALOG.find((c) => c.id.endsWith(`/${m.id}`))?.icon ?? "lab.png",
+      provider: "github-copilot",
+      contextWindow: m.contextWindow,
+      reasoning: m.reasoning,
+      cost: { input: 0, output: 0 },
+    }));
+  const ref = (id: string): ModelRef => {
+    if (!available.some((m) => m.id === id))
+      throw new Error(
+        `Copilot model ${id} is not available. Choose one of: ${available.map((m) => m.id).join(", ")}`,
+      );
+    return { provider: "github-copilot", modelId: id };
+  };
+  return {
+    models,
+    provider: "github-copilot",
+    defaultModel: ref(defaultModel || available[0].id),
     list,
     ref,
     info: (id) => list().find((m) => m.id === id),

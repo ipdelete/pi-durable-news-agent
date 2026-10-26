@@ -40,6 +40,36 @@ just net down local                # stop the API, the UI and the tick
 
 ---
 
+### Use your existing Pi Copilot login
+
+On the machine running the API, open Pi and use `/login` to sign into GitHub Copilot.
+The server reuses Pi's `auth.json` and automatic token refresh; no new login flow or credential database is added.
+It uses the same OS user and `PI_CODING_AGENT_DIR` as Pi (default: `~/.pi/agent`).
+
+Set these values in `.env`:
+
+```dotenv
+DNA_PROVIDER=github-copilot
+DNA_MODEL=
+DNA_RESEARCH_MODEL=
+JEV_BACKEND=openrouter
+OPENROUTER_API_KEY=your-openrouter-key
+```
+
+Blank model IDs select the first available Copilot model. You can choose another through the
+existing model selectors or set a Copilot model ID in `.env` (not an OpenRouter `vendor/model` ID).
+The desk, research subagents, deep research and quick tasks all use Copilot; jev still uses OpenRouter.
+There is no automatic fallback to paid OpenRouter agent calls. Restart the API after changing accounts.
+If you previously used another provider, set a separate `DNA_DATA_DIR` to avoid reusing incompatible saved models and conversations.
+
+Copilot model dollar costs are excluded from spend totals: subscription/premium-request usage is not
+measured here. jev and optional image-generation charges are still counted. Account limits and organization
+policies still apply. On Windows, run the API with `npm run start --workspace=dna-server-api`
+and the browser with `npm run dev --workspace=dna-client-browser`; the scheduled `just combos local` setup
+still targets macOS/Linux.
+
+---
+
 ## Why this exists
 
 <p align="center">

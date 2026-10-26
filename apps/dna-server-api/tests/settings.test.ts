@@ -1,9 +1,19 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { DnaError } from "@dna/sdk";
+import { loadConfig } from "../src/config.ts";
 import { bootServer, idle, settledSweep, type Booted } from "./server.ts";
 
 let s: Booted;
+
+test("Copilot configuration does not inherit OpenRouter model IDs or change jev's provider", () => {
+  const config = loadConfig([], { DNA_PROVIDER: "github-copilot", JEV_BACKEND: "openrouter" });
+  assert.equal(config.provider, "github-copilot");
+  assert.equal(config.model, "");
+  assert.equal(config.researchModel, "");
+  assert.equal(config.jevBackend, "openrouter");
+  assert.throws(() => loadConfig([], { DNA_PROVIDER: "typo" }), /Unknown DNA_PROVIDER/);
+});
 before(async () => {
   s = await bootServer({ FIRECRAWL_API_KEY: "" });
 });

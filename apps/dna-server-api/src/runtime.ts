@@ -8,6 +8,7 @@ import { JevClient, type Decide } from "@dna/jev";
 import type { CompactionState } from "@dna/sdk";
 import {
   createModelCatalog,
+  createCopilotCatalog,
   DEFAULT_POINTS,
   fit,
   fits,
@@ -67,13 +68,36 @@ function decideFor(config: Config): Decide {
 export async function openApp(config: Config, options: { log?: Logger } = {}): Promise<App> {
   mkdirSync(config.dataDir, { recursive: true });
   const log = options.log ?? createLogger("api").child({ device: config.device });
-  const store = openStore(config.dataDir, config.configDir);
   const http = config.searchMode === "fixture" ? fixtureHttp() : liveHttp(log);
-  const catalog = createModelCatalog({
-    provider: config.provider,
-    installFaux: (models) => installScriptedFaux(models, fauxRules()),
-    defaultModel: config.provider === "faux" ? undefined : config.model,
-  });
+  const catalog =
+    config.provider === "github-copilot"
+      ? await createCopilotCatalog(config.model)
+      : createModelCatalog({
+          provider: config.provider,
+          installFaux: (models) => installScriptedFaux(models, fauxRules()),
+          defaultModel: config.provider === "faux" ? undefined : config.model,
+        });
+  if (config.researchModel) catalog.ref(config.researchModel);
+  const store = openStore(config.dataDir, config.configDir);
+  const previousProvider = store.settings.get<string | undefined>("modelProvider", undefined);
+  if (previousProvider && previousProvider !== config.provider) {
+    store.close();
+    throw new Error(
+      `This data directory uses ${previousProvider}, not ${config.provider}. Use a separate DNA_DATA_DIR when changing providers.`,
+    );
+  }
+  if (config.provider === "github-copilot") {
+    for (const key of ["quick", "deepResearch"]) {
+      const saved = store.settings.get<{ model?: string }>(key, {});
+      if (saved.model && !catalog.info(saved.model)) {
+        store.close();
+        throw new Error(
+          `Saved ${key} model ${saved.model} is not available on Copilot. Use a separate DNA_DATA_DIR.`,
+        );
+      }
+      if (!saved.model) store.settings.set(key, { ...saved, model: catalog.defaultModel.modelId });
+    }
+  }
   const judge = new Judge({
     decide: decideFor(config),
     store,
@@ -137,12 +161,29 @@ export async function openApp(config: Config, options: { log?: Logger } = {}): P
   const main = await harness.harness.root(ctx, {
     agent: { model: catalog.defaultModel, thinkingLevel: "low" },
   });
+  const savedAgent = await main.agent(ctx);
+  if (
+    savedAgent.model &&
+    (savedAgent.model.provider !== catalog.provider || !catalog.info(savedAgent.model.modelId))
+  ) {
+    stopProjector();
+    await harness.close();
+    store.close();
+    throw new Error(
+      `The saved conversation uses ${savedAgent.model.provider}/${savedAgent.model.modelId}, which is not available with ${catalog.provider}. Use a separate DNA_DATA_DIR.`,
+    );
+  }
+  store.settings.set("modelProvider", config.provider);
   const mainModel = async () => {
     const agent = await main.agent(ctx);
     const id = agent.model?.modelId ?? catalog.defaultModel.modelId;
     return { id, window: catalog.info(id)?.contextWindow ?? 1_000_000 };
   };
   window = (await mainModel()).window;
+  if (config.provider === "github-copilot" && !fits(window, compaction.points)) {
+    compaction.points = fit(window, compaction.points);
+    store.settings.set("compaction", compaction);
+  }
   harness.harness.resume();
 
   const stallTimer = setInterval(() => {
