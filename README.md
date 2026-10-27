@@ -40,6 +40,35 @@ just net down local                # stop the API, the UI and the tick
 
 ---
 
+### Windows setup through WSL
+
+With an existing Ubuntu WSL distribution and a non-root default Linux user, run from
+the Windows checkout in PowerShell:
+
+```powershell
+.\scripts\setup-wsl.ps1 -WhatIf
+.\scripts\setup-wsl.ps1 -Distribution Ubuntu
+```
+
+The [bootstrap](scripts/setup-wsl.ps1) clones the `ipdelete` fork's
+`feat/copilot-provider` branch into `~/src/pi-durable-news-agent`. Override
+`-Repository` or `-Branch` to use another fork or branch. It installs missing Ubuntu
+packages using WSL's root account, then nvm, Node 24, Pi (matching the repository's
+version), and workspace dependencies as the default Linux user.
+
+Create `.env` in the Windows checkout first. The script copies only `.env` and an
+optional `.npmrc`, with owner-only Linux permissions. Existing Linux copies are
+preserved; `DNA_DATA_DIR` is normalized to an absolute Linux path. An absolute
+Windows data path requires manual correction. Existing checkouts must match the
+requested origin and branch; they are not pulled, switched, or reset.
+
+No databases, Pi credentials, or Windows `node_modules` are copied. In Ubuntu,
+run `pi`, use `/login`, and select GitHub Copilot. App startup, tests, and cron
+registration remain explicit next steps; the script starts none of them and does
+not configure Windows startup or keep WSL alive.
+
+---
+
 ### Use your existing Pi Copilot login
 
 On the machine running the API, open Pi and use `/login` to sign into GitHub Copilot.
